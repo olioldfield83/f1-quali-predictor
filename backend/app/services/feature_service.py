@@ -6,6 +6,7 @@ class FeatureService:
     def __init__(self):
         self.results_service = ResultsService()
 
+    @lru_cache(maxsize=16)
     def build_training_data(self, start_year: int = 2024, end_year: int = 2026) -> list[dict]:
         results = self.results_service.get_multi_year_qualifying_results(
             start_year=start_year,

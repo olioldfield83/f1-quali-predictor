@@ -11,6 +11,20 @@ class AIService:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
+    def _clean_json_text(self, text: str) -> str:
+        cleaned = text.strip()
+
+        if cleaned.startswith("```json"):
+            cleaned = cleaned.removeprefix("```json").strip()
+
+        if cleaned.startswith("```"):
+            cleaned = cleaned.removeprefix("```").strip()
+
+        if cleaned.endswith("```"):
+            cleaned = cleaned.removesuffix("```").strip()
+
+        return cleaned
+
     def explain_predictions(self, predictions: list[dict]) -> dict:
         compact_predictions = predictions[:20]
 
@@ -25,6 +39,7 @@ Rules:
 - Use only the supplied prediction fields.
 - Mention uncertainty where appropriate.
 - Return valid JSON only.
+- Do not wrap the JSON in markdown fences.
 
 Predictions:
 {json.dumps(compact_predictions, indent=2)}
@@ -47,7 +62,7 @@ Return JSON in this exact shape:
             input=prompt,
         )
 
-        text = response.output_text
+        text = self._clean_json_text(response.output_text)
 
         try:
             return json.loads(text)

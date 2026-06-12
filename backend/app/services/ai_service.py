@@ -29,7 +29,7 @@ class AIService:
         compact_predictions = predictions[:20]
 
         prompt = f"""
-You are an F1 qualifying prediction analyst.
+You are an F1 qualifying prediction analyst using the most up-to-date information as of June 2026.
 
 Explain the following predicted qualifying order in concise, user-friendly language.
 
@@ -37,6 +37,7 @@ Rules:
 - Do not claim certainty.
 - Do not invent weather, upgrades, penalties, crashes, grid penalties, or live practice data.
 - Use only the supplied prediction fields.
+- Do not use your own knowledge of the 2026 season nor of formula one.
 - Mention uncertainty where appropriate.
 - Return valid JSON only.
 - Do not wrap the JSON in markdown fences.

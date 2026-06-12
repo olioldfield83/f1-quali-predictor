@@ -42,7 +42,7 @@ type ExplainResponse = {
     year: number;
     round: number;
   };
-  explanation: {
+  explanation?: {
     summary: string;
     driver_explanations: DriverExplanation[];
   };
@@ -115,15 +115,14 @@ export default function Home() {
     setError("");
 
     try {
-      let url = `${API_BASE_URL}/ai/explain-next?start_year=2024&end_year=2026&model_version=v1`;
+      let url = `${API_BASE_URL}/predictions/next?start_year=2024&end_year=2026`;
 
       if (mode === "race") {
         if (!selectedRound) {
           throw new Error("Please select a race first.");
         }
 
-        url = `${API_BASE_URL}/ai/explain-race/${year}/${selectedRound}?start_year=2024&model_version=v1`;
-      }
+        url = `${API_BASE_URL}/predictions/race/${year}/${selectedRound}?start_year=2024`;      }
 
       const response = await fetch(url);
 

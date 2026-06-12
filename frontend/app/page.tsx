@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type Race = {
+  round: number;
+  name: string;
+  country: string;
+  location: string;
+  official_name?: string;
+  date?: string;
+};
+
 type Prediction = {
   driver: string;
   team: string;
@@ -29,11 +38,16 @@ type ExplainResponse = {
   prediction_model: string;
   ai_model: string;
   count: number;
+  target?: {
+    year: number;
+    round: number;
+  };
   explanation: {
     summary: string;
     driver_explanations: DriverExplanation[];
   };
   predictions: Prediction[];
+  cached?: boolean;
 };
 
 const API_BASE_URL =
@@ -41,11 +55,17 @@ const API_BASE_URL =
 
 export default function Home() {
   const [data, setData] = useState<ExplainResponse | null>(null);
+  const [races, setRaces] = useState<Race[]>([]);
   const [year, setYear] = useState("2026");
-  const [roundNumber, setRoundNumber] = useState("7");
+  const [selectedRound, setSelectedRound] = useState("");
   const [mode, setMode] = useState<"next" | "race">("next");
   const [loading, setLoading] = useState(false);
+  const [loadingRaces, setLoadingRaces] = useState(false);
   const [error, setError] = useState("");
+
+  const selectedRace = useMemo(() => {
+    return races.find((race) => String(race.round) === selectedRound) ?? null;
+  }, [races, selectedRound]);
 
   const explanationByDriver = useMemo(() => {
     const map = new Map<string, string>();
@@ -57,15 +77,53 @@ export default function Home() {
     return map;
   }, [data]);
 
+  async function loadRaces(targetYear: string) {
+    setLoadingRaces(true);
+    setError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/races/?year=${targetYear}`);
+
+      if (!response.ok) {
+        throw new Error(`Could not load races. Status ${response.status}`);
+      }
+
+      const json = await response.json();
+
+      const raceList = ((json.races ?? []) as Race[]).filter(
+        (race) => race.round > 0
+      );
+
+      setRaces(raceList);
+
+      if (raceList.length > 0) {
+        setSelectedRound(String(raceList[0].round));
+      } else {
+        setSelectedRound("");
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not load race list";
+      setError(message);
+    } finally {
+      setLoadingRaces(false);
+    }
+  }
+
   async function loadPredictions() {
     setLoading(true);
     setError("");
 
     try {
-      const url =
-        mode === "next"
-          ? `${API_BASE_URL}/ai/explain-next?start_year=2024&end_year=2026&model_version=v1`
-          : `${API_BASE_URL}/ai/explain-race/${year}/${roundNumber}?start_year=2024&model_version=v1`;
+      let url = `${API_BASE_URL}/ai/explain-next?start_year=2024&end_year=2026&model_version=v1`;
+
+      if (mode === "race") {
+        if (!selectedRound) {
+          throw new Error("Please select a race first.");
+        }
+
+        url = `${API_BASE_URL}/ai/explain-race/${year}/${selectedRound}?start_year=2024&model_version=v1`;
+      }
 
       const response = await fetch(url);
 
@@ -83,6 +141,11 @@ export default function Home() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    loadRaces(year);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year]);
 
   useEffect(() => {
     loadPredictions();
@@ -118,10 +181,15 @@ export default function Home() {
             <p className="mt-1 text-sm text-neutral-400">
               AI: {data?.ai_model ?? "gpt-4.1-mini"}
             </p>
+            {data?.cached !== undefined && (
+              <p className="mt-1 text-xs text-neutral-500">
+                {data.cached ? "Loaded from cache" : "Fresh forecast"}
+              </p>
+            )}
           </div>
         </div>
 
-        <div className="mb-8 grid gap-4 rounded-3xl border border-neutral-800 bg-neutral-900 p-5 md:grid-cols-[1fr_1fr_1fr_auto]">
+        <div className="mb-8 grid gap-4 rounded-3xl border border-neutral-800 bg-neutral-900 p-5 md:grid-cols-[1fr_1fr_2fr_auto]">
           <div>
             <label className="mb-2 block text-sm text-neutral-400">
               Forecast type
@@ -140,24 +208,38 @@ export default function Home() {
 
           <div>
             <label className="mb-2 block text-sm text-neutral-400">Year</label>
-            <input
+            <select
               value={year}
               onChange={(event) => setYear(event.target.value)}
               disabled={mode === "next"}
               className="w-full rounded-xl border border-neutral-700 bg-black px-4 py-3 text-white disabled:opacity-40"
-            />
+            >
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+            </select>
           </div>
 
           <div>
             <label className="mb-2 block text-sm text-neutral-400">
-              Round number
+              Race / track
             </label>
-            <input
-              value={roundNumber}
-              onChange={(event) => setRoundNumber(event.target.value)}
-              disabled={mode === "next"}
+            <select
+              value={selectedRound}
+              onChange={(event) => setSelectedRound(event.target.value)}
+              disabled={mode === "next" || loadingRaces}
               className="w-full rounded-xl border border-neutral-700 bg-black px-4 py-3 text-white disabled:opacity-40"
-            />
+            >
+              {races.map((race, index) => (
+                <option
+                  key={`${race.round}-${race.name}-${race.location}-${index}`}
+                  value={race.round}
+                >
+                  Round {race.round}: {race.name}
+                  {race.location ? ` — ${race.location}` : ""}
+                </option>
+              ))}
+            </select>
           </div>
 
           <button
@@ -168,6 +250,24 @@ export default function Home() {
             {loading ? "Loading..." : "Update forecast"}
           </button>
         </div>
+
+        {mode === "race" && selectedRace && (
+          <div className="mb-8 rounded-3xl border border-neutral-800 bg-neutral-900 p-5">
+            <p className="text-sm uppercase tracking-widest text-red-400">
+              Selected race
+            </p>
+            <h2 className="mt-2 text-2xl font-bold">{selectedRace.name}</h2>
+            <p className="mt-1 text-neutral-300">
+              Round {selectedRace.round} · {selectedRace.location},{" "}
+              {selectedRace.country}
+            </p>
+            {selectedRace.date && (
+              <p className="mt-1 text-sm text-neutral-500">
+                Event date: {formatDate(selectedRace.date)}
+              </p>
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="mb-8 rounded-2xl border border-red-800 bg-red-950/60 p-4 text-red-200">
@@ -304,4 +404,18 @@ function formatNumber(value: number | null | undefined) {
   }
 
   return value.toFixed(2);
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }

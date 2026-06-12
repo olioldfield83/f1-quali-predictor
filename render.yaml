@@ -14,7 +14,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
 
-  - type: web
+    - type: web
     name: f1-quali-predictor-web
     runtime: node
     rootDir: frontend
@@ -24,3 +24,5 @@ services:
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
         value: https://f1-quali-predictor-api.onrender.com
+      - key: NODE_VERSION
+        value: 22.12.0

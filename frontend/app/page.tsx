@@ -34,9 +34,10 @@ type DriverExplanation = {
   explanation: string;
 };
 
-type ExplainResponse = {
-  prediction_model: string;
-  ai_model: string;
+type PredictionResponse = {
+  prediction_model?: string;
+  model?: string;
+  ai_model?: string;
   count: number;
   target?: {
     year: number;
@@ -54,12 +55,13 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 export default function Home() {
-  const [data, setData] = useState<ExplainResponse | null>(null);
+  const [data, setData] = useState<PredictionResponse | null>(null);
   const [races, setRaces] = useState<Race[]>([]);
   const [year, setYear] = useState("2026");
   const [selectedRound, setSelectedRound] = useState("");
   const [mode, setMode] = useState<"next" | "race">("next");
   const [loading, setLoading] = useState(false);
+  const [loadingAi, setLoadingAi] = useState(false);
   const [loadingRaces, setLoadingRaces] = useState(false);
   const [error, setError] = useState("");
 
@@ -110,34 +112,89 @@ export default function Home() {
     }
   }
 
+  function getPredictionUrl() {
+    if (mode === "race") {
+      if (!selectedRound) {
+        throw new Error("Please select a race first.");
+      }
+
+      return `${API_BASE_URL}/predictions/race/${year}/${selectedRound}?start_year=2024`;
+    }
+
+    return `${API_BASE_URL}/predictions/next?start_year=2024&end_year=2026`;
+  }
+
+  function getAiUrl() {
+    if (mode === "race") {
+      if (!selectedRound) {
+        throw new Error("Please select a race first.");
+      }
+
+      return `${API_BASE_URL}/ai/explain-race/${year}/${selectedRound}?start_year=2024&model_version=v1`;
+    }
+
+    return `${API_BASE_URL}/ai/explain-next?start_year=2024&end_year=2026&model_version=v1`;
+  }
+
   async function loadPredictions() {
     setLoading(true);
     setError("");
 
     try {
-      let url = `${API_BASE_URL}/predictions/next?start_year=2024&end_year=2026`;
-
-      if (mode === "race") {
-        if (!selectedRound) {
-          throw new Error("Please select a race first.");
-        }
-
-        url = `${API_BASE_URL}/predictions/race/${year}/${selectedRound}?start_year=2024`;      }
-
-      const response = await fetch(url);
+      const response = await fetch(getPredictionUrl());
 
       if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+        throw new Error(`Prediction request failed with status ${response.status}`);
       }
 
-      const json = (await response.json()) as ExplainResponse;
-      setData(json);
+      const json = (await response.json()) as PredictionResponse;
+
+      setData({
+        ...json,
+        prediction_model: json.prediction_model ?? json.model,
+        explanation: undefined,
+        ai_model: undefined,
+        cached: undefined,
+      });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
       setError(message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function generateAiExplanation() {
+    setLoadingAi(true);
+    setError("");
+
+    try {
+      const response = await fetch(getAiUrl());
+
+      if (!response.ok) {
+        throw new Error(`AI request failed with status ${response.status}`);
+      }
+
+      const json = (await response.json()) as PredictionResponse;
+
+      setData((current) => ({
+        ...(current ?? json),
+        prediction_model:
+          json.prediction_model ?? current?.prediction_model ?? json.model,
+        ai_model: json.ai_model,
+        explanation: json.explanation,
+        cached: json.cached,
+        predictions: current?.predictions ?? json.predictions,
+        count: current?.count ?? json.count,
+        target: current?.target ?? json.target,
+      }));
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not generate AI explanation";
+      setError(message);
+    } finally {
+      setLoadingAi(false);
     }
   }
 
@@ -166,7 +223,8 @@ export default function Home() {
             </h1>
             <p className="mt-4 max-w-2xl text-neutral-300">
               Predict qualifying order using FastF1 historical data, a
-              backtested baseline model, and OpenAI-generated explanations.
+              backtested baseline model, and optional OpenAI-generated
+              explanations.
             </p>
           </div>
 
@@ -178,17 +236,17 @@ export default function Home() {
               {data?.prediction_model ?? "baseline-history-v1"}
             </p>
             <p className="mt-1 text-sm text-neutral-400">
-              AI: {data?.ai_model ?? "gpt-4.1-mini"}
+              AI: {data?.ai_model ?? "Not generated yet"}
             </p>
             {data?.cached !== undefined && (
               <p className="mt-1 text-xs text-neutral-500">
-                {data.cached ? "Loaded from cache" : "Fresh forecast"}
+                {data.cached ? "AI loaded from cache" : "Fresh AI explanation"}
               </p>
             )}
           </div>
         </div>
 
-        <div className="mb-8 grid gap-4 rounded-3xl border border-neutral-800 bg-neutral-900 p-5 md:grid-cols-[1fr_1fr_2fr_auto]">
+        <div className="mb-8 grid gap-4 rounded-3xl border border-neutral-800 bg-neutral-900 p-5 md:grid-cols-[1fr_1fr_2fr_auto_auto]">
           <div>
             <label className="mb-2 block text-sm text-neutral-400">
               Forecast type
@@ -248,6 +306,14 @@ export default function Home() {
           >
             {loading ? "Loading..." : "Update forecast"}
           </button>
+
+          <button
+            onClick={generateAiExplanation}
+            disabled={loadingAi || !data?.predictions?.length}
+            className="rounded-xl border border-neutral-700 bg-black px-6 py-3 font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60 md:self-end"
+          >
+            {loadingAi ? "Generating..." : "Generate AI"}
+          </button>
         </div>
 
         {mode === "race" && selectedRace && (
@@ -274,7 +340,7 @@ export default function Home() {
           </div>
         )}
 
-        {data?.explanation?.summary && (
+        {data?.explanation?.summary ? (
           <div className="mb-8 rounded-3xl border border-neutral-800 bg-neutral-900 p-6">
             <p className="mb-2 text-sm uppercase tracking-widest text-red-400">
               AI summary
@@ -283,6 +349,18 @@ export default function Home() {
               {data.explanation.summary}
             </p>
           </div>
+        ) : (
+          data?.predictions?.length ? (
+            <div className="mb-8 rounded-3xl border border-neutral-800 bg-neutral-900 p-6">
+              <p className="mb-2 text-sm uppercase tracking-widest text-red-400">
+                AI summary
+              </p>
+              <p className="text-neutral-400">
+                Predictions loaded. Click “Generate AI” to add a written
+                explanation.
+              </p>
+            </div>
+          ) : null
         )}
 
         {topThree.length > 0 && (
@@ -373,7 +451,7 @@ export default function Home() {
                     </td>
                     <td className="max-w-md px-5 py-4 text-sm leading-6 text-neutral-300">
                       {explanationByDriver.get(prediction.driver) ??
-                        "No explanation returned."}
+                        "Click Generate AI for explanation."}
                     </td>
                   </tr>
                 ))}

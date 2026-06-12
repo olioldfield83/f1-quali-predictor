@@ -1,0 +1,22 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/app/__pycache__/
+backend/app/**/__pycache__/
+backend/cache/
+backend/data/
+*.pyc
+
+# Env files
+backend/.env
+frontend/.env.local
+.env
+.env.local
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# macOS
+.DS_Store

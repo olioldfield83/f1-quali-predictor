@@ -1,6 +1,6 @@
 from collections import defaultdict
+from functools import lru_cache
 from app.services.results_service import ResultsService
-
 
 class FeatureService:
     def __init__(self):

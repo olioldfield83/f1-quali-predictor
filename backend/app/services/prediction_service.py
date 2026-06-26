@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
+
 from app.services.feature_service import FeatureService
 
 
@@ -35,12 +36,19 @@ class PredictionService:
         momentum: float,
         q3_rate: float,
     ) -> float:
+        """
+        Recency-first baseline model.
+
+        Recent driver form is the largest factor, followed by recent team form.
+        Long-term historical averages have a smaller influence.
+        Lower scores are better because lower qualifying positions are better.
+        """
         return (
-            0.45 * driver_recent
-            + 0.20 * driver_long
+            0.60 * driver_recent
+            + 0.08 * driver_long
             + 0.25 * team_recent
-            + 0.10 * team_long
-            - 2.00 * q3_rate
+            + 0.07 * team_long
+            - 2.20 * q3_rate
         )
 
     def _score_v2(
@@ -53,14 +61,21 @@ class PredictionService:
         momentum: float,
         q3_rate: float,
     ) -> float:
+        """
+        Recency-first model with teammate and momentum adjustments.
+
+        Positive momentum should improve a driver's forecast, while a positive
+        teammate gap should worsen it if that feature measures how far behind
+        their teammate the driver has been.
+        """
         return (
-            0.35 * driver_recent
-            + 0.15 * driver_long
-            + 0.20 * team_recent
-            + 0.10 * team_long
-            + 0.10 * teammate_gap
-            + 0.10 * momentum
-            - 1.80 * q3_rate
+            0.50 * driver_recent
+            + 0.08 * driver_long
+            + 0.22 * team_recent
+            + 0.05 * team_long
+            + 0.08 * teammate_gap
+            + 0.20 * momentum
+            - 2.10 * q3_rate
         )
 
     def _build_predictions_from_rows(
@@ -73,14 +88,23 @@ class PredictionService:
             return []
 
         latest_year = max(row["year"] for row in rows)
-        latest_round = max(row["round"] for row in rows if row["year"] == latest_year)
+        latest_round = max(
+            row["round"]
+            for row in rows
+            if row["year"] == latest_year
+        )
 
         latest_grid = [
-            row for row in rows
-            if row["year"] == latest_year and row["round"] == latest_round
+            row
+            for row in rows
+            if row["year"] == latest_year
+            and row["round"] == latest_round
         ]
 
-        active_drivers = {row["driver"] for row in latest_grid}
+        active_drivers = {
+            row["driver"]
+            for row in latest_grid
+        }
 
         driver_rows = defaultdict(list)
 
@@ -104,13 +128,47 @@ class PredictionService:
             momentum = latest.get("momentum")
             q3_rate = latest.get("q3_rate")
 
-            driver_recent = driver_recent if driver_recent is not None else 12.0
-            driver_long = driver_long if driver_long is not None else driver_recent
-            team_recent = team_recent if team_recent is not None else 12.0
-            team_long = team_long if team_long is not None else team_recent
-            teammate_gap = teammate_gap if teammate_gap is not None else 0.0
-            momentum = momentum if momentum is not None else 0.0
-            q3_rate = q3_rate if q3_rate is not None else 0.4
+            driver_recent = (
+                driver_recent
+                if driver_recent is not None
+                else 12.0
+            )
+
+            driver_long = (
+                driver_long
+                if driver_long is not None
+                else driver_recent
+            )
+
+            team_recent = (
+                team_recent
+                if team_recent is not None
+                else 12.0
+            )
+
+            team_long = (
+                team_long
+                if team_long is not None
+                else team_recent
+            )
+
+            teammate_gap = (
+                teammate_gap
+                if teammate_gap is not None
+                else 0.0
+            )
+
+            momentum = (
+                momentum
+                if momentum is not None
+                else 0.0
+            )
+
+            q3_rate = (
+                q3_rate
+                if q3_rate is not None
+                else 0.4
+            )
 
             if model_version == "v1":
                 score = self._score_v1(
@@ -122,6 +180,7 @@ class PredictionService:
                     momentum=momentum,
                     q3_rate=q3_rate,
                 )
+
             elif model_version == "v2":
                 score = self._score_v2(
                     driver_recent=driver_recent,
@@ -132,8 +191,11 @@ class PredictionService:
                     momentum=momentum,
                     q3_rate=q3_rate,
                 )
+
             else:
-                raise ValueError(f"Unsupported model_version: {model_version}")
+                raise ValueError(
+                    f"Unsupported model_version: {model_version}"
+                )
 
             prediction_inputs.append(
                 {
@@ -150,22 +212,33 @@ class PredictionService:
                 }
             )
 
-        prediction_inputs = sorted(prediction_inputs, key=lambda item: item["score"])
+        prediction_inputs = sorted(
+            prediction_inputs,
+            key=lambda item: item["score"],
+        )
 
         output = []
 
         for index, item in enumerate(prediction_inputs, start=1):
-            pole_probability = max(0.01, 0.32 - (index - 1) * 0.035)
+            pole_probability = max(
+                0.01,
+                0.32 - (index - 1) * 0.035,
+            )
 
             q3_probability = max(
                 0.03,
                 min(
                     0.98,
-                    item["q3_rate"] * 0.70 + (1 / max(index, 1)) * 0.30,
+                    item["q3_rate"] * 0.70
+                    + (1 / max(index, 1)) * 0.30,
                 ),
             )
 
-            confidence = "medium" if index <= 5 or item["q3_rate"] >= 0.6 else "low"
+            confidence = (
+                "medium"
+                if index <= 5 or item["q3_rate"] >= 0.6
+                else "low"
+            )
 
             output.append(
                 DriverPrediction(
@@ -173,15 +246,42 @@ class PredictionService:
                     team=item["team"],
                     predicted_position=index,
                     score=round(item["score"], 3),
-                    driver_recent_avg_position=round(item["driver_recent_avg_position"], 2),
-                    driver_long_avg_position=round(item["driver_long_avg_position"], 2),
-                    team_recent_avg_position=round(item["team_recent_avg_position"], 2),
-                    team_long_avg_position=round(item["team_long_avg_position"], 2),
-                    teammate_gap=round(item["teammate_gap"], 2),
-                    momentum=round(item["momentum"], 2),
-                    q3_rate=round(item["q3_rate"], 3),
-                    pole_probability=round(pole_probability, 3),
-                    q3_probability=round(q3_probability, 3),
+                    driver_recent_avg_position=round(
+                        item["driver_recent_avg_position"],
+                        2,
+                    ),
+                    driver_long_avg_position=round(
+                        item["driver_long_avg_position"],
+                        2,
+                    ),
+                    team_recent_avg_position=round(
+                        item["team_recent_avg_position"],
+                        2,
+                    ),
+                    team_long_avg_position=round(
+                        item["team_long_avg_position"],
+                        2,
+                    ),
+                    teammate_gap=round(
+                        item["teammate_gap"],
+                        2,
+                    ),
+                    momentum=round(
+                        item["momentum"],
+                        2,
+                    ),
+                    q3_rate=round(
+                        item["q3_rate"],
+                        3,
+                    ),
+                    pole_probability=round(
+                        pole_probability,
+                        3,
+                    ),
+                    q3_probability=round(
+                        q3_probability,
+                        3,
+                    ),
                     confidence=confidence,
                 )
             )
@@ -219,9 +319,15 @@ class PredictionService:
         )
 
         historical_rows = [
-            row for row in rows
-            if (row["year"] < target_year)
-            or (row["year"] == target_year and row["round"] < target_round)
+            row
+            for row in rows
+            if (
+                row["year"] < target_year
+                or (
+                    row["year"] == target_year
+                    and row["round"] < target_round
+                )
+            )
         ]
 
         return self._build_predictions_from_rows(

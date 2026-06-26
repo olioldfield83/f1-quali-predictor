@@ -10,6 +10,11 @@ ai_service = AIService()
 CACHE_TTL_SECONDS = 60 * 60  # 1 hour
 _response_cache: dict[str, dict] = {}
 
+def clear_ai_response_cache() -> int:
+    count = len(_response_cache)
+    _response_cache.clear()
+    return count
+
 
 def get_cached_response(cache_key: str) -> dict | None:
     cached = _response_cache.get(cache_key)
